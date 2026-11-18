@@ -30,6 +30,11 @@ const CATEGORY_LABELS: Record<Exclude<MenuCategoryId, "all">, string> = {
   patisserie: "Bakery & Patisserie",
 };
 
+// Positive modulo helper for circular wrapping calculations
+function mod(n: number, m: number): number {
+  return ((n % m) + m) % m;
+}
+
 export default function MenuShowcaseSection() {
   const sectionRef = useRef<HTMLElement | null>(null);
   const stageRef = useRef<HTMLDivElement | null>(null);
@@ -48,6 +53,21 @@ export default function MenuShowcaseSection() {
   const wheelAccumRef = useRef(0);
   const wheelTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const manualOverrideRef = useRef(false);
+
+  // Horizontal pointer movement / velocity physics state
+  const pointerPhysicsRef = useRef<{
+    lastX: number | null;
+    velocity: number;
+    targetVelocity: number;
+    rafId: number | null;
+    active: boolean;
+  }>({
+    lastX: null,
+    velocity: 0,
+    targetVelocity: 0,
+    rafId: null,
+    active: false,
+  });
 
   const [activeCategory, setActiveCategory] = useState<MenuCategoryId>("all");
   const [query, setQuery] = useState("");
@@ -72,12 +92,47 @@ export default function MenuShowcaseSection() {
     });
   }, [activeCategory, query]);
 
-  const itemCount = filteredItems.length;
-  const safeActiveIndex = itemCount > 0 ? Math.min(activeIndex, itemCount - 1) : 0;
+  // Virtual track items so wrapping is completely invisible outside the viewport cone (abs > 2.6)
+  const { displayItems, trackCount, originalCount } = useMemo(() => {
+    const n = filteredItems.length;
+    if (n <= 1) {
+      return {
+        displayItems: filteredItems.map((item, originalIdx) => ({
+          item,
+          virtualKey: `${item.id}-0`,
+          originalIdx,
+        })),
+        trackCount: n,
+        originalCount: n,
+      };
+    }
+    // Ensure at least 8 virtual slots so antipodal point (trackCount / 2 >= 4) is well beyond visible range (2.6)
+    const repeats = Math.max(1, Math.ceil(8 / n));
+    const items: { item: MenuItem; virtualKey: string; originalIdx: number }[] = [];
+    for (let r = 0; r < repeats; r++) {
+      filteredItems.forEach((item, originalIdx) => {
+        items.push({
+          item,
+          virtualKey: `${item.id}-${r}`,
+          originalIdx,
+        });
+      });
+    }
+    return {
+      displayItems: items,
+      trackCount: items.length,
+      originalCount: n,
+    };
+  }, [filteredItems]);
+
+  const safeActiveIndex = originalCount > 0 ? mod(activeIndex, originalCount) : 0;
   const activeItem: MenuItem | null =
-    itemCount > 0 ? filteredItems[safeActiveIndex] : null;
+    originalCount > 0 ? filteredItems[safeActiveIndex] : null;
 
   // Apply 2.5D / 3D perspective transforms to every item based on continuous float position
+  // Uses smooth continuous cosine curves so scale, brightness, and opacity transition seamlessly
+  // with ZERO derivative at the center (no sudden popping, jumping, or snapping).
+  // Infinite circular wrapping: each item calculates its shortest signed distance along the circle.
   const apply3DLayout = useCallback(
     (floatPos: number) => {
       const stageWidth = stageRef.current?.clientWidth || (isDesktop ? 1280 : isTablet ? 768 : 390);
@@ -89,11 +144,16 @@ export default function MenuShowcaseSection() {
 
       itemRefs.current.forEach((el, idx) => {
         if (!el) return;
-        const offset = idx - floatPos;
+
+        // Calculate continuous circular offset on a circle of length trackCount
+        let offset = idx - floatPos;
+        if (trackCount > 1) {
+          offset = mod(idx - floatPos + trackCount * 0.5, trackCount) - trackCount * 0.5;
+        }
         const abs = Math.abs(offset);
 
         // Hide far items cleanly for performance and uncluttered composition
-        if (abs > 2.45) {
+        if (abs > 2.6) {
           gsap.set(el, {
             opacity: 0,
             pointerEvents: "none",
@@ -102,92 +162,92 @@ export default function MenuShowcaseSection() {
           return;
         }
 
-        const clamped = Math.min(abs, 2.2);
         const x = offset * spacing;
-        const scale = Math.max(0.46, 1.06 - clamped * 0.31);
-        const y = clamped * (isDesktop ? 22 : 16);
-        const rotateY = reducedMotion ? 0 : Math.max(-22, Math.min(22, -offset * 13));
-        const opacity =
-          abs < 0.08
-            ? 1
-            : Math.max(0, 1 - Math.pow(Math.min(abs / 2.25, 1), 1.05) * 0.92);
-        const brightness = Math.max(0.55, 1 - Math.min(abs, 1.6) * 0.24);
-        const blurPx = abs < 0.1 ? 0 : Math.min(abs, 1.5) * 1.1;
+
+        // Continuous cosine curve for scale: crests smoothly at 1.08 at abs=0 (slope=0, no peak jump)
+        // and gracefully tapers down to 0.58 at abs=2.2
+        const tScale = Math.min(abs / 2.2, 1);
+        const scale = 0.58 + 0.50 * 0.5 * (1 + Math.cos(tScale * Math.PI));
+
+        // Smooth elevation curve (slight downward arc as plates move away from center)
+        const y = (1 - 0.5 * (1 + Math.cos(tScale * Math.PI))) * (isDesktop ? 20 : 14);
+
+        // Continuous 3D rotation
+        const rotateY = reducedMotion ? 0 : Math.max(-20, Math.min(20, -offset * 12));
+
+        // Continuous cosine opacity: 1.0 at center, fades smoothly to 0 at edges with zero pop
+        const tOp = Math.min(abs / 2.4, 1);
+        const opacity = Math.max(0, 0.5 * (1 + Math.cos(tOp * Math.PI)));
+
+        // Continuous brightness: 1.000 at center, gently dips to 0.68 for side items
+        // Keeping brightness filter strictly continuous prevents GPU layer re-rasterization jumps
+        const tBr = Math.min(abs / 2.0, 1);
+        const brightness = 0.68 + 0.32 * 0.5 * (1 + Math.cos(tBr * Math.PI));
 
         gsap.set(el, {
           visibility: "visible",
-          pointerEvents: abs < 1.45 ? "auto" : "none",
+          pointerEvents: abs < 1.2 ? "auto" : "none",
           x,
           y,
           scale,
           rotateY,
           opacity,
-          zIndex: Math.round(40 - Math.min(abs, 3) * 10),
-          filter:
-            abs < 0.08
-              ? "none"
-              : `brightness(${brightness.toFixed(3)}) blur(${blurPx.toFixed(2)}px)`,
+          zIndex: Math.round(50 - abs * 10),
+          filter: `brightness(${brightness.toFixed(3)})`,
           force3D: true,
         });
       });
     },
-    [isDesktop, isTablet, reducedMotion]
+    [isDesktop, isTablet, reducedMotion, trackCount]
   );
 
-  // Smooth GSAP snap to target index
-  const snapToIndex = useCallback(
-    (targetIdx: number, immediate = false) => {
-      if (itemCount === 0) return;
-      const clamped = Math.min(itemCount - 1, Math.max(0, targetIdx));
-      setActiveIndex(clamped);
+  // Smooth GSAP glide to target float position (unbounded infinite track)
+  const snapToPosition = useCallback(
+    (targetPos: number, immediate = false) => {
+      if (originalCount === 0) return;
+      const nearestOrig = mod(Math.round(targetPos), originalCount);
+      setActiveIndex(nearestOrig);
 
       gsap.killTweensOf(posProxyRef.current);
 
       if (immediate || reducedMotion) {
-        posProxyRef.current.value = clamped;
-        apply3DLayout(clamped);
+        posProxyRef.current.value = targetPos;
+        apply3DLayout(targetPos);
         return;
       }
 
       gsap.to(posProxyRef.current, {
-        value: clamped,
-        duration: 0.65,
-        ease: "power3.out",
+        value: targetPos,
+        duration: 0.52,
+        ease: "power2.out",
         onUpdate: () => {
           apply3DLayout(posProxyRef.current.value);
         },
       });
     },
-    [itemCount, reducedMotion, apply3DLayout]
+    [originalCount, reducedMotion, apply3DLayout]
   );
 
   // Re-layout whenever filtered list or viewport size changes
   useEffect(() => {
-    itemRefs.current = itemRefs.current.slice(0, filteredItems.length);
+    itemRefs.current = itemRefs.current.slice(0, displayItems.length);
     posProxyRef.current.value = safeActiveIndex;
     apply3DLayout(safeActiveIndex);
 
     const onResize = () => apply3DLayout(posProxyRef.current.value);
     window.addEventListener("resize", onResize, { passive: true });
     return () => window.removeEventListener("resize", onResize);
-  }, [filteredItems.length, safeActiveIndex, apply3DLayout]);
+  }, [displayItems.length, safeActiveIndex, apply3DLayout]);
 
-  // Subtle warm glow pulse & editorial info fade-in when active product changes
+  // Subtle editorial info crossfade when active plate changes (no sudden position jumps)
   useEffect(() => {
     if (reducedMotion || !activeItem) return;
 
-    if (glowRef.current) {
-      gsap.fromTo(
-        glowRef.current,
-        { scale: 0.86, opacity: 0.58 },
-        { scale: 1.04, opacity: 1, duration: 0.7, ease: "power2.out" }
-      );
-    }
     if (infoRef.current) {
       gsap.fromTo(
         infoRef.current,
-        { opacity: 0, y: 12 },
-        { opacity: 1, y: 0, duration: 0.42, ease: "power2.out" }
+        { opacity: 0.35 },
+        { opacity: 1, duration: 0.28, ease: "power1.out" }
       );
     }
   }, [activeItem, reducedMotion]);
@@ -198,7 +258,7 @@ export default function MenuShowcaseSection() {
       !isDesktop ||
       reducedMotion ||
       !sectionRef.current ||
-      filteredItems.length <= 1 ||
+      originalCount <= 1 ||
       activeCategory !== "all" ||
       query.trim().length > 0
     ) {
@@ -207,7 +267,7 @@ export default function MenuShowcaseSection() {
 
     registerGSAP();
 
-    const maxPreviewStep = Math.min(3, filteredItems.length - 1);
+    const maxPreviewStep = Math.min(3, originalCount - 1);
 
     const ctx = gsap.context(() => {
       ScrollTrigger.create({
@@ -220,14 +280,14 @@ export default function MenuShowcaseSection() {
           const nextFloat = self.progress * maxPreviewStep;
           posProxyRef.current.value = nextFloat;
           apply3DLayout(nextFloat);
-          const nearest = Math.round(nextFloat);
+          const nearest = mod(Math.round(nextFloat), originalCount);
           setActiveIndex((prev) => (prev === nearest ? prev : nearest));
         },
       });
     }, sectionRef);
 
     return () => ctx.revert();
-  }, [isDesktop, reducedMotion, filteredItems.length, activeCategory, query, apply3DLayout]);
+  }, [isDesktop, reducedMotion, originalCount, activeCategory, query, apply3DLayout]);
 
   // Reset active position cleanly when changing category or search query
   const handleCategorySelect = (catId: MenuCategoryId) => {
@@ -244,17 +304,51 @@ export default function MenuShowcaseSection() {
     posProxyRef.current.value = 0;
   };
 
-  const handleManualStep = useCallback(
-    (nextIdx: number) => {
+  // Step forward or backward by delta (infinite looping in either direction)
+  const handleStepBy = useCallback(
+    (step: number) => {
       manualOverrideRef.current = true;
-      snapToIndex(nextIdx);
+      const current = posProxyRef.current.value;
+      const target = Math.round(current) + step;
+      snapToPosition(target);
     },
-    [snapToIndex]
+    [snapToPosition]
   );
 
-  // Pointer / Touch Horizontal Drag with smooth velocity snapping
+  // Click directly on a plate to center it via shortest path
+  const handlePlateClick = useCallback(
+    (virtualIdx: number) => {
+      if (dragStateRef.current.moved) return;
+      manualOverrideRef.current = true;
+      const floatPos = posProxyRef.current.value;
+      const offset =
+        trackCount > 1
+          ? mod(virtualIdx - floatPos + trackCount * 0.5, trackCount) - trackCount * 0.5
+          : 0;
+      if (Math.abs(offset) > 0.05) {
+        snapToPosition(floatPos + offset);
+      }
+    },
+    [trackCount, snapToPosition]
+  );
+
+  // Click on a pagination dot to jump via shortest circular path
+  const handleDotClick = useCallback(
+    (targetOrigIdx: number) => {
+      manualOverrideRef.current = true;
+      const floatPos = posProxyRef.current.value;
+      const currentActive = mod(Math.round(floatPos), originalCount);
+      const delta =
+        mod(targetOrigIdx - currentActive + originalCount * 0.5, originalCount) -
+        originalCount * 0.5;
+      snapToPosition(Math.round(floatPos) + delta);
+    },
+    [originalCount, snapToPosition]
+  );
+
+  // Pointer / Touch Horizontal Drag with unbounded infinite track
   const handlePointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
-    if (itemCount <= 1) return;
+    if (originalCount <= 1) return;
     // Do not hijack button clicks
     if ((e.target as HTMLElement).closest("button")) return;
 
@@ -275,13 +369,12 @@ export default function MenuShowcaseSection() {
     if (Math.abs(dx) > 6) dragStateRef.current.moved = true;
 
     const dragUnit = isDesktop ? 320 : 210;
-    const rawPos = dragStateRef.current.startValue - dx / dragUnit;
-    const bounded = Math.max(-0.35, Math.min(itemCount - 1 + 0.35, rawPos));
+    const nextPos = dragStateRef.current.startValue - dx / dragUnit;
 
-    posProxyRef.current.value = bounded;
-    apply3DLayout(bounded);
+    posProxyRef.current.value = nextPos;
+    apply3DLayout(nextPos);
 
-    const nearest = Math.min(itemCount - 1, Math.max(0, Math.round(bounded)));
+    const nearest = mod(Math.round(nextPos), originalCount);
     setActiveIndex((prev) => (prev === nearest ? prev : nearest));
   };
 
@@ -298,12 +391,12 @@ export default function MenuShowcaseSection() {
     if (Math.abs(dx) > 45 && target === Math.round(dragStateRef.current.startValue)) {
       target += dx < 0 ? 1 : -1;
     }
-    snapToIndex(target);
+    snapToPosition(target);
   };
 
-  // Trackpad horizontal swipe / Shift+Wheel glides products without blocking normal vertical scroll
+  // Trackpad horizontal swipe / Shift+Wheel glides products infinitely without blocking normal vertical scroll
   const handleStageWheel = (e: React.WheelEvent<HTMLDivElement>) => {
-    if (itemCount <= 1) return;
+    if (originalCount <= 1) return;
     const isHorizontalGesture =
       Math.abs(e.deltaX) > Math.abs(e.deltaY) || e.shiftKey;
     if (!isHorizontalGesture) return;
@@ -316,7 +409,7 @@ export default function MenuShowcaseSection() {
     if (Math.abs(wheelAccumRef.current) >= 55) {
       const dir = wheelAccumRef.current > 0 ? 1 : -1;
       wheelAccumRef.current = 0;
-      snapToIndex(safeActiveIndex + dir);
+      handleStepBy(dir);
     }
 
     if (wheelTimeoutRef.current) clearTimeout(wheelTimeoutRef.current);
@@ -330,18 +423,113 @@ export default function MenuShowcaseSection() {
     if ((e.target as HTMLElement).tagName === "INPUT") return;
     if (e.key === "ArrowRight") {
       e.preventDefault();
-      handleManualStep(safeActiveIndex + 1);
+      handleStepBy(1);
     } else if (e.key === "ArrowLeft") {
       e.preventDefault();
-      handleManualStep(safeActiveIndex - 1);
-    } else if (e.key === "Home") {
-      e.preventDefault();
-      handleManualStep(0);
-    } else if (e.key === "End") {
-      e.preventDefault();
-      handleManualStep(itemCount - 1);
+      handleStepBy(-1);
     }
   };
+
+  // ── Horizontal Pointer-Movement-Controlled Speed & Inertia ──
+  // Responds directly to cursor movement velocity with infinite seamless wrap:
+  // - Cursor moving left moves the carousel left
+  // - Cursor moving right moves the carousel right
+  // - Faster movement = higher velocity, slower movement = lower velocity
+  // - When cursor stops moving, motion smoothly decelerates and comes to rest
+  // - Resting cursor does NOT continuously scroll
+  // - Infinite seamless looping in both directions without edge clamping or popping
+  useEffect(() => {
+    const stage = stageRef.current;
+    if (!stage || originalCount <= 1 || reducedMotion) return;
+
+    const physics = pointerPhysicsRef.current;
+
+    const tick = () => {
+      // If user is dragging or touching, suspend cursor hover velocity
+      if (dragStateRef.current.active) {
+        physics.velocity = 0;
+        physics.targetVelocity = 0;
+        physics.rafId = requestAnimationFrame(tick);
+        return;
+      }
+
+      // Smoothly blend towards target velocity
+      // Target velocity rapidly decays when mouse stops moving
+      physics.targetVelocity *= 0.82;
+      physics.velocity = physics.velocity * 0.84 + physics.targetVelocity * 0.16;
+
+      if (Math.abs(physics.velocity) > 0.0001) {
+        const nextPos = posProxyRef.current.value + physics.velocity;
+
+        posProxyRef.current.value = nextPos;
+        apply3DLayout(nextPos);
+
+        const nearest = mod(Math.round(nextPos), originalCount);
+        setActiveIndex((prev) => (prev === nearest ? prev : nearest));
+      } else {
+        physics.velocity = 0;
+      }
+
+      physics.rafId = requestAnimationFrame(tick);
+    };
+
+    const handleMove = (e: PointerEvent) => {
+      if (dragStateRef.current.active) {
+        physics.lastX = e.clientX;
+        return;
+      }
+
+      if (physics.lastX === null) {
+        physics.lastX = e.clientX;
+        return;
+      }
+
+      const dx = e.clientX - physics.lastX;
+      physics.lastX = e.clientX;
+
+      // Sensitivity: map horizontal pixel displacement to carousel item offset
+      // Moving cursor left (dx < 0) moves carousel left (pos increases)
+      // Moving cursor right (dx > 0) moves carousel right (pos decreases)
+      const stageWidth = stage.clientWidth || 1000;
+      const sensitivity = 1.35 / stageWidth;
+
+      physics.targetVelocity -= dx * sensitivity;
+      // Cap maximum velocity to keep movement natural, elegant, and readable
+      physics.targetVelocity = Math.max(-0.24, Math.min(0.24, physics.targetVelocity));
+
+      if (!physics.active) {
+        physics.active = true;
+        manualOverrideRef.current = true;
+        gsap.killTweensOf(posProxyRef.current);
+      }
+    };
+
+    const handleLeave = () => {
+      physics.lastX = null;
+      physics.targetVelocity = 0;
+    };
+
+    // Fine pointer only (mouse / trackpad pointer movement)
+    const mql = window.matchMedia("(pointer: fine)");
+    if (!mql.matches) return;
+
+    physics.rafId = requestAnimationFrame(tick);
+    stage.addEventListener("pointermove", handleMove, { passive: true });
+    stage.addEventListener("pointerleave", handleLeave, { passive: true });
+
+    return () => {
+      stage.removeEventListener("pointermove", handleMove);
+      stage.removeEventListener("pointerleave", handleLeave);
+      if (physics.rafId) {
+        cancelAnimationFrame(physics.rafId);
+        physics.rafId = null;
+      }
+      physics.active = false;
+      physics.lastX = null;
+      physics.velocity = 0;
+      physics.targetVelocity = 0;
+    };
+  }, [originalCount, reducedMotion, apply3DLayout]);
 
   return (
     <section
@@ -543,20 +731,20 @@ export default function MenuShowcaseSection() {
             })}
           </div>
 
-          {itemCount > 0 && (
+          {originalCount > 0 && (
             <div className="font-mono text-xs tracking-[0.2em] text-fana-cream/65">
               <span className="font-semibold text-fana-gold">
                 {String(safeActiveIndex + 1).padStart(2, "0")}
               </span>
               <span className="mx-1.5 text-fana-cream/30">/</span>
-              <span>{String(itemCount).padStart(2, "0")}</span>
+              <span>{String(originalCount).padStart(2, "0")}</span>
             </div>
           )}
         </div>
       </div>
 
       {/* ─── 3D / 2.5D Floating Cutout Carousel Stage ─────────────────────── */}
-      {itemCount === 0 ? (
+      {originalCount === 0 ? (
         <div className="relative z-10 mx-auto mt-16 max-w-md px-6 text-center">
           <p className="font-display text-2xl text-fana-cream">
             No plates match “{query}”
@@ -588,7 +776,7 @@ export default function MenuShowcaseSection() {
             style={{ perspective: "1200px" }}
             className={cn(
               "relative mx-auto flex h-[320px] w-full touch-pan-y select-none items-center justify-center overflow-hidden sm:h-[390px] lg:h-[450px]",
-              itemCount > 1 ? "cursor-grab active:cursor-grabbing" : "cursor-default"
+              originalCount > 1 ? "cursor-grab active:cursor-grabbing" : "cursor-default"
             )}
           >
             {/* Warm Café Spotlight Glow behind Active Floating Product */}
@@ -619,23 +807,21 @@ export default function MenuShowcaseSection() {
               className="pointer-events-none absolute inset-y-0 right-0 z-30 w-12 bg-gradient-to-l from-fana-dark to-transparent sm:w-24 lg:w-36"
             />
 
-            {/* Floating Cutout Plates */}
-            {filteredItems.map((item, idx) => {
-              const isActive = idx === safeActiveIndex;
-              const isNearby = Math.abs(idx - safeActiveIndex) <= 1;
+            {/* Floating Cutout Plates (Virtual Loop Display) */}
+            {displayItems.map((entry, idx) => {
+              const { item, virtualKey, originalIdx } = entry;
+              const isActive = originalIdx === safeActiveIndex;
 
               return (
                 <div
-                  key={item.id}
+                  key={virtualKey}
                   ref={(el) => {
                     itemRefs.current[idx] = el;
                   }}
                   data-menu-plate={item.id}
+                  data-virtual-idx={idx}
                   data-active={isActive ? "true" : "false"}
-                  onClick={() => {
-                    if (dragStateRef.current.moved) return;
-                    if (!isActive) handleManualStep(idx);
-                  }}
+                  onClick={() => handlePlateClick(idx)}
                   className={cn(
                     "absolute left-1/2 top-1/2 flex h-[240px] w-[260px] -translate-x-1/2 -translate-y-1/2 items-center justify-center sm:h-[310px] sm:w-[340px] lg:h-[370px] lg:w-[410px] will-change-transform",
                     !isActive && "cursor-pointer"
@@ -646,52 +832,40 @@ export default function MenuShowcaseSection() {
                     alt={item.name}
                     width={item.imageWidth}
                     height={item.imageHeight}
-                    loading={isNearby ? "eager" : "lazy"}
-                    priority={idx === 0 && activeCategory === "all"}
+                    {...(idx === 0 && activeCategory === "all"
+                      ? { priority: true }
+                      : { loading: "lazy" }
+                    )}
                     draggable={false}
                     sizes="(max-width: 640px) 260px, (max-width: 1024px) 340px, 410px"
                     className={cn(
                       "pointer-events-none max-h-full max-w-full h-auto w-auto object-contain select-none",
                       item.isTransparentCutout
-                        ? isActive
-                          ? "drop-shadow-[0_26px_38px_rgba(0,0,0,0.85)]"
-                          : "drop-shadow-[0_14px_22px_rgba(0,0,0,0.65)]"
-                        : "rounded-full [mask-image:radial-gradient(ellipse_62%_68%_at_50%_54%,black_55%,transparent_100%)] drop-shadow-[0_24px_34px_rgba(0,0,0,0.8)]"
+                        ? "drop-shadow-[0_22px_32px_rgba(0,0,0,0.8)]"
+                        : "rounded-full [mask-image:radial-gradient(ellipse_62%_68%_at_50%_54%,black_55%,transparent_100%)] drop-shadow-[0_22px_32px_rgba(0,0,0,0.8)]"
                     )}
                   />
                 </div>
               );
             })}
 
-            {/* Floating Left / Right Controls (shown only when >1 item) */}
-            {itemCount > 1 && (
+            {/* Floating Left / Right Controls (Continuous Infinite Loop) */}
+            {originalCount > 1 && (
               <>
                 <button
                   type="button"
-                  onClick={() => handleManualStep(safeActiveIndex - 1)}
-                  disabled={safeActiveIndex === 0}
+                  onClick={() => handleStepBy(-1)}
                   aria-label="Previous menu item"
-                  className={cn(
-                    "absolute left-3 top-1/2 z-40 flex h-11 w-11 -translate-y-1/2 items-center justify-center rounded-full border backdrop-blur-md transition sm:left-6 lg:left-10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-fana-gold",
-                    safeActiveIndex === 0
-                      ? "cursor-not-allowed border-fana-cream/10 bg-fana-dark/40 text-fana-cream/25"
-                      : "border-fana-cream/20 bg-fana-dark/65 text-fana-cream hover:border-fana-gold hover:text-fana-gold"
-                  )}
+                  className="absolute left-3 top-1/2 z-40 flex h-11 w-11 -translate-y-1/2 items-center justify-center rounded-full border border-fana-cream/20 bg-fana-dark/65 text-fana-cream backdrop-blur-md transition sm:left-6 lg:left-10 hover:border-fana-gold hover:text-fana-gold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-fana-gold"
                 >
                   <ChevronLeft className="h-5 w-5" />
                 </button>
 
                 <button
                   type="button"
-                  onClick={() => handleManualStep(safeActiveIndex + 1)}
-                  disabled={safeActiveIndex === itemCount - 1}
+                  onClick={() => handleStepBy(1)}
                   aria-label="Next menu item"
-                  className={cn(
-                    "absolute right-3 top-1/2 z-40 flex h-11 w-11 -translate-y-1/2 items-center justify-center rounded-full border backdrop-blur-md transition sm:right-6 lg:right-10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-fana-gold",
-                    safeActiveIndex === itemCount - 1
-                      ? "cursor-not-allowed border-fana-cream/10 bg-fana-dark/40 text-fana-cream/25"
-                      : "border-fana-cream/20 bg-fana-dark/65 text-fana-cream hover:border-fana-gold hover:text-fana-gold"
-                  )}
+                  className="absolute right-3 top-1/2 z-40 flex h-11 w-11 -translate-y-1/2 items-center justify-center rounded-full border border-fana-cream/20 bg-fana-dark/65 text-fana-cream backdrop-blur-md transition sm:right-6 lg:right-10 hover:border-fana-gold hover:text-fana-gold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-fana-gold"
                 >
                   <ChevronRight className="h-5 w-5" />
                 </button>
@@ -751,7 +925,7 @@ export default function MenuShowcaseSection() {
           )}
 
           {/* ─── Compact Progress & Quick-Jump Rail ───────────────────────── */}
-          {itemCount > 1 && (
+          {originalCount > 1 && (
             <div className="mx-auto mt-9 max-w-xl px-6">
               <div className="flex items-center justify-center gap-1.5 overflow-hidden py-1">
                 {filteredItems.map((item, idx) => {
@@ -760,7 +934,7 @@ export default function MenuShowcaseSection() {
                     <button
                       key={item.id}
                       type="button"
-                      onClick={() => handleManualStep(idx)}
+                      onClick={() => handleDotClick(idx)}
                       aria-label={`View ${item.name}`}
                       className={cn(
                         "h-1.5 rounded-full transition-all duration-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-fana-gold",
@@ -775,7 +949,7 @@ export default function MenuShowcaseSection() {
 
               <p className="mt-2.5 text-center font-mono text-[10px] uppercase tracking-[0.22em] text-fana-cream/40">
                 {isDesktop
-                  ? "Drag, use arrows, or scroll to explore"
+                  ? "Move cursor left / right, drag, use arrows, or scroll to explore"
                   : "Swipe or tap arrows to explore"}
               </p>
             </div>

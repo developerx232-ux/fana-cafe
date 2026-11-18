@@ -1,22 +1,25 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { ArrowDown, ArrowRight, Compass } from "lucide-react";
+import { ArrowDown } from "lucide-react";
 import { gsap, ScrollTrigger, registerGSAP } from "@/lib/gsap";
-import { scrollToTarget } from "@/lib/lenis";
 import { cn, progressToFrame, TOTAL_SCROLL_FRAMES } from "@/lib/utils";
 import CoffeeScrollCanvas from "./CoffeeScrollCanvas";
 import { useFramePreloader } from "./useFramePreloader";
 
 interface StoryBeat {
   id: string;
-  headline: string;
-  supporting: string;
+  sceneNumber?: string;
+  sceneLabel?: string;
+  headlineLine1: string;
+  headlineLine2: string;
+  headlineAccent?: string;
+  supporting?: string;
   /** Progress window [enterStart, holdStart, holdEnd, exitEnd] mapped to 0..1 */
   window: [number, number, number, number];
-  /** Initial directional X offset (px) for restrained cinematic entrance */
-  enterXDesktop: number;
-  /** Responsive wrapper positioning classes (Mobile analyzed separately from Desktop) */
+  headlineEnterFrom: "center" | "left" | "right";
+  supportingEnterFrom: "center" | "left" | "right";
+  /** Responsive wrapper positioning classes */
   positionClass: string;
   /** Responsive text alignment & max-width classes */
   contentClass: string;
@@ -28,106 +31,96 @@ interface StoryBeat {
 
 /**
  * 6 Scroll-Synchronized Story Beats
- * Every position & alignment is derived from visual composition analysis of the
- * actual 368 desktop (16:10 cover) and 368 mobile (9:19.5 cover) WebP frames.
+ * Clean, centered golden typography for opening & final scenes,
+ * and choreographed kinetic typography with left/right entrances for intermediate beats.
  */
 const STORY_BEATS: StoryBeat[] = [
   {
     id: "opening",
-    headline: "A little pause in the heart of Addis.",
-    supporting: "Step into warmth, conversation, and a slower rhythm.",
-    window: [0.0, 0.0, 0.095, 0.145],
-    enterXDesktop: 0,
-    // Mobile: dark lower-left void | Desktop: wide dark left two-thirds (bean at far right)
-    positionClass:
-      "items-end justify-start pb-16 sm:pb-20 md:items-center md:justify-start md:pb-0 md:pt-8",
-    contentClass: "max-w-[20.5rem] text-left sm:max-w-md md:max-w-[34rem] md:text-left",
-    showCtas: true,
-    ctaAlignClass: "justify-start",
+    headlineLine1: "A little pause",
+    headlineLine2: "in the heart of Addis.",
+    window: [0.0, 0.0, 0.08, 0.135],
+    headlineEnterFrom: "center",
+    supportingEnterFrom: "center",
+    // Pure, centered golden opening hero headline
+    positionClass: "items-center justify-center text-center",
+    contentClass:
+      "max-w-[24rem] sm:max-w-2xl md:max-w-4xl lg:max-w-5xl text-center mx-auto",
   },
   {
     id: "origin",
-    headline: "Every great moment begins with a cup.",
-    supporting: "Rich, unhurried, and poured fresh.",
-    window: [0.155, 0.2, 0.26, 0.305],
-    enterXDesktop: 22,
-    // Mobile: dark lower band below macro bean diagonal | Desktop: dark lower-right while giant bean sweeps upper-center
+    sceneNumber: "02",
+    sceneLabel: "SINGLE ORIGIN",
+    headlineLine1: "Every great moment",
+    headlineLine2: "begins with a cup.",
+    headlineAccent: "with a cup.",
+    supporting: "Rich, unhurried, and poured fresh from highlands harvest.",
+    window: [0.145, 0.19, 0.26, 0.305],
+    headlineEnterFrom: "left",
+    supportingEnterFrom: "right",
     positionClass:
       "items-end justify-start pb-16 sm:pb-20 md:items-end md:justify-end md:pb-20",
-    contentClass: "max-w-[20.5rem] text-left sm:max-w-md md:max-w-[30rem] md:text-right",
+    contentClass: "max-w-[21.5rem] text-left sm:max-w-md md:max-w-[32rem] md:text-right",
   },
   {
     id: "aroma",
-    headline: "Take a breath. Stay a while.",
-    supporting: "Soft light, rising aroma, and unhurried time.",
-    window: [0.315, 0.365, 0.44, 0.49],
-    enterXDesktop: -22,
-    // Mobile: dark upper-left clear of emerging glass rim | Desktop: open upper-left sky above curling steam
+    sceneNumber: "03",
+    sceneLabel: "THE SANCTUARY",
+    headlineLine1: "Take a breath.",
+    headlineLine2: "Stay a while.",
+    headlineAccent: "Stay a while.",
+    supporting: "Soft amber light, rising aroma, and unhurried time.",
+    window: [0.315, 0.36, 0.435, 0.48],
+    headlineEnterFrom: "right",
+    supportingEnterFrom: "left",
     positionClass:
       "items-start justify-start pt-24 sm:pt-28 md:items-start md:justify-start md:pt-28",
-    contentClass: "max-w-[20rem] text-left sm:max-w-md md:max-w-[30rem] md:text-left",
+    contentClass: "max-w-[21rem] text-left sm:max-w-md md:max-w-[32rem] md:text-left",
   },
   {
     id: "pour",
-    headline: "Coffee, fresh juice, and something sweet.",
+    sceneNumber: "04",
+    sceneLabel: "THE CRAFT",
+    headlineLine1: "Coffee, fresh juice,",
+    headlineLine2: "and something sweet.",
+    headlineAccent: "and something sweet.",
     supporting: "Crafted for mornings, cravings, and good company.",
-    window: [0.505, 0.55, 0.64, 0.69],
-    enterXDesktop: 22,
-    // Mobile: dark upper-right above full-width glass & crema splash | Desktop: dark right flank beside centered splash column
+    window: [0.495, 0.54, 0.635, 0.68],
+    headlineEnterFrom: "left",
+    supportingEnterFrom: "right",
     positionClass:
       "items-start justify-end pt-24 sm:pt-28 md:items-center md:justify-end md:pt-0 md:pb-16",
-    contentClass: "max-w-[19.5rem] text-right sm:max-w-sm md:max-w-[25rem] md:text-right",
+    contentClass: "max-w-[21rem] text-right sm:max-w-sm md:max-w-[28rem] md:text-right",
   },
   {
     id: "experience",
-    headline: "A place to meet, work, and unwind.",
+    sceneNumber: "05",
+    sceneLabel: "COMMUNAL SPACE",
+    headlineLine1: "A place to meet,",
+    headlineLine2: "work, and unwind.",
+    headlineAccent: "work, and unwind.",
     supporting: "Warm oak tables, fresh air, and space to focus.",
-    window: [0.705, 0.745, 0.815, 0.855],
-    enterXDesktop: -22,
-    // Mobile: calm dark upper-left above settling glass | Desktop: open mid-left flank (glass handle extends right)
+    window: [0.695, 0.74, 0.815, 0.855],
+    headlineEnterFrom: "right",
+    supportingEnterFrom: "left",
     positionClass:
       "items-start justify-start pt-24 sm:pt-28 md:items-center md:justify-start md:pt-0 md:pb-14",
-    contentClass: "max-w-[20rem] text-left sm:max-w-sm md:max-w-[26rem] md:text-left",
+    contentClass: "max-w-[21rem] text-left sm:max-w-sm md:max-w-[28rem] md:text-left",
   },
   {
     id: "finished",
-    headline: "Your Fana moment starts here.",
-    supporting: "Explore what is fresh at the counter or step inside our spaces.",
+    headlineLine1: "Your Fana moment",
+    headlineLine2: "starts here.",
+    headlineAccent: "starts here.",
     window: [0.87, 0.915, 1.0, 1.0],
-    enterXDesktop: 20,
-    // Mobile: centered in dark upper half directly above untouched steaming hero cup | Desktop: serene upper-right flank above glass handle
-    positionClass:
-      "items-start justify-center pt-24 sm:pt-28 md:items-start md:justify-end md:pt-28",
+    headlineEnterFrom: "center",
+    supportingEnterFrom: "center",
+    // Pure, centered golden final invitation headline
+    positionClass: "items-center justify-center text-center",
     contentClass:
-      "max-w-[21rem] text-center sm:max-w-md md:max-w-[28rem] md:text-right",
-    showCtas: true,
-    ctaAlignClass: "justify-center md:justify-end",
+      "max-w-[24rem] sm:max-w-2xl md:max-w-4xl lg:max-w-5xl text-center mx-auto",
   },
 ];
-
-function HeroCtaGroup({ alignClass }: { alignClass?: string }) {
-  return (
-    <div className={cn("mt-6 flex flex-wrap items-center gap-3", alignClass)}>
-      <button
-        type="button"
-        onClick={() => scrollToTarget("#menu")}
-        className="group inline-flex h-11 items-center gap-2 rounded-full bg-fana-gold px-6 text-sm font-semibold text-fana-dark shadow-[0_10px_30px_rgba(245,158,11,0.3)] transition-all duration-200 hover:bg-fana-gold/90 hover:shadow-[0_12px_36px_rgba(245,158,11,0.42)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-fana-gold focus-visible:ring-offset-2 focus-visible:ring-offset-fana-dark sm:h-12 sm:px-7"
-      >
-        <span>Explore Menu</span>
-        <ArrowRight className="h-4 w-4 transition-transform duration-200 group-hover:translate-x-0.5" />
-      </button>
-
-      <button
-        type="button"
-        onClick={() => scrollToTarget("#spaces")}
-        className="inline-flex h-11 items-center gap-2 rounded-full border border-fana-cream/30 bg-fana-dark/45 px-5 text-sm font-medium text-fana-cream backdrop-blur-md transition-all duration-200 hover:border-fana-gold/80 hover:bg-fana-dark/70 hover:text-fana-gold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-fana-gold focus-visible:ring-offset-2 focus-visible:ring-offset-fana-dark sm:h-12 sm:px-6"
-      >
-        <Compass className="h-4 w-4 text-fana-gold/90" aria-hidden="true" />
-        <span>Discover Fana</span>
-      </button>
-    </div>
-  );
-}
 
 export default function ScrollStoryExperience() {
   const containerRef = useRef<HTMLDivElement | null>(null);
@@ -160,58 +153,126 @@ export default function ScrollStoryExperience() {
         const el = beatRefs.current[idx];
         if (!el) return;
 
+        const headlineEl = el.querySelector(".kinetic-headline");
+        const supportingEl = el.querySelector(".kinetic-supporting");
+        const badgeEl = el.querySelector(".editorial-badge");
+        const ctaEl = el.querySelector(".kinetic-cta");
+        const goldenLineEl = el.querySelector(".golden-line");
+
         const [enterStart, holdStart, holdEnd, exitEnd] = beat.window;
-        const enterX = isMobile ? 0 : beat.enterXDesktop;
+        const distX = isMobile ? 28 : 56;
 
         if (idx === 0) {
-          // Opening beat starts fully visible at scrollY = 0
-          gsap.set(el, { autoAlpha: 1, y: 0, x: 0 });
+          // Centered Opening Beat starts fully visible at scrollY = 0
+          gsap.set(el, { autoAlpha: 1 });
+          if (headlineEl) gsap.set(headlineEl, { y: 0, opacity: 1, filter: "blur(0px)" });
+
+          // Scroll-driven exit: smoothly and progressively disappears with upward drift & gentle blur
+          const exitDur = exitEnd - holdEnd;
+          if (headlineEl) {
+            tl.to(
+              headlineEl,
+              {
+                y: -38,
+                opacity: 0,
+                filter: "blur(12px)",
+                duration: exitDur * 0.85,
+                ease: "power2.in",
+              },
+              holdEnd
+            );
+          }
           tl.to(
             el,
-            {
-              autoAlpha: 0,
-              y: -26,
-              duration: exitEnd - holdEnd,
-              ease: "power2.in",
-            },
-            holdEnd
+            { autoAlpha: 0, duration: exitDur * 0.2, ease: "none" },
+            holdEnd + exitDur * 0.8
           );
         } else if (idx === STORY_BEATS.length - 1) {
-          // Final beat enters cleanly and holds visible through frame 368
-          gsap.set(el, { autoAlpha: 0, y: 28, x: enterX });
-          tl.to(
-            el,
-            {
-              autoAlpha: 1,
-              y: 0,
-              x: 0,
-              duration: holdStart - enterStart,
-              ease: "power2.out",
-            },
-            enterStart
-          );
+          // Final scene: pure centered golden invitation headline enters and holds
+          gsap.set(el, { autoAlpha: 1 });
+          if (headlineEl) gsap.set(headlineEl, { y: 32, opacity: 0, filter: "blur(10px)" });
+
+          const enterDur = holdStart - enterStart;
+          if (headlineEl) {
+            tl.to(
+              headlineEl,
+              { y: 0, opacity: 1, filter: "blur(0px)", duration: enterDur * 0.85, ease: "power2.out" },
+              enterStart
+            );
+          }
         } else {
-          // Mid-story beats: directional entrance → quiet hold → subtle upward exit
-          gsap.set(el, { autoAlpha: 0, y: 28, x: enterX });
+          // Mid-story scenes: headline enters from left/right, supporting enters from opposite right/left!
+          gsap.set(el, { autoAlpha: 1 });
+          const hSign = beat.headlineEnterFrom === "left" ? -1 : 1;
+          const sSign = beat.supportingEnterFrom === "left" ? -1 : 1;
+
+          if (headlineEl) gsap.set(headlineEl, { x: hSign * distX, opacity: 0, filter: "blur(10px)" });
+          if (supportingEl) gsap.set(supportingEl, { x: sSign * distX, opacity: 0, filter: "blur(8px)" });
+          if (badgeEl) gsap.set(badgeEl, { opacity: 0, y: 12 });
+          if (goldenLineEl) gsap.set(goldenLineEl, { scaleX: 0, transformOrigin: "left center" });
+
+          const enterDur = holdStart - enterStart;
+          if (headlineEl) {
+            tl.to(
+              headlineEl,
+              { x: 0, opacity: 1, filter: "blur(0px)", duration: enterDur * 0.82, ease: "power2.out" },
+              enterStart
+            );
+          }
+          if (supportingEl) {
+            tl.to(
+              supportingEl,
+              { x: 0, opacity: 0.85, filter: "blur(0px)", duration: enterDur * 0.82, ease: "power2.out" },
+              enterStart + enterDur * 0.08
+            );
+          }
+          if (badgeEl) {
+            tl.to(badgeEl, { opacity: 1, y: 0, duration: enterDur * 0.6, ease: "power2.out" }, enterStart);
+          }
+          if (goldenLineEl) {
+            tl.to(goldenLineEl, { scaleX: 1, duration: enterDur * 0.65, ease: "power2.out" }, enterStart);
+          }
+
+          // Progressive exit
+          const exitDur = exitEnd - holdEnd;
+          if (headlineEl) {
+            tl.to(
+              headlineEl,
+              {
+                x: hSign * (distX * 0.45),
+                y: -18,
+                opacity: 0,
+                filter: "blur(8px)",
+                duration: exitDur * 0.75,
+                ease: "power2.in",
+              },
+              holdEnd
+            );
+          }
+          if (supportingEl) {
+            tl.to(
+              supportingEl,
+              {
+                x: sSign * (distX * 0.45),
+                y: -18,
+                opacity: 0,
+                filter: "blur(8px)",
+                duration: exitDur * 0.75,
+                ease: "power2.in",
+              },
+              holdEnd + exitDur * 0.06
+            );
+          }
+          if (badgeEl) {
+            tl.to(badgeEl, { opacity: 0, y: -10, duration: exitDur * 0.5, ease: "power2.in" }, holdEnd + exitDur * 0.12);
+          }
+          if (goldenLineEl) {
+            tl.to(goldenLineEl, { scaleX: 0, duration: exitDur * 0.5, ease: "power2.in" }, holdEnd + exitDur * 0.12);
+          }
           tl.to(
             el,
-            {
-              autoAlpha: 1,
-              y: 0,
-              x: 0,
-              duration: holdStart - enterStart,
-              ease: "power2.out",
-            },
-            enterStart
-          ).to(
-            el,
-            {
-              autoAlpha: 0,
-              y: -24,
-              duration: exitEnd - holdEnd,
-              ease: "power2.in",
-            },
-            holdEnd
+            { autoAlpha: 0, duration: exitDur * 0.2, ease: "none" },
+            holdEnd + exitDur * 0.8
           );
         }
       });
@@ -298,28 +359,41 @@ export default function ScrollStoryExperience() {
         </div>
 
         <div className="relative z-content mx-auto flex max-w-6xl flex-col gap-12 px-6 sm:px-10 md:px-16">
-          <div className="max-w-2xl space-y-4 pt-4">
-            <h1 className="font-display text-4xl leading-[1.08] text-fana-cream drop-shadow-[0_4px_24px_rgba(0,0,0,0.75)] sm:text-5xl md:text-6xl">
-              {STORY_BEATS[0].headline}
+          <div className="mx-auto max-w-4xl space-y-4 pt-4 text-center">
+            <h1 className="font-display font-serif text-4xl leading-[1.08] text-transparent bg-clip-text bg-gradient-to-r from-amber-100 via-fana-gold to-amber-300 drop-shadow-[0_4px_24px_rgba(245,158,11,0.35)] sm:text-5xl md:text-6xl">
+              <span className="block">{STORY_BEATS[0].headlineLine1}</span>
+              <span className="block">{STORY_BEATS[0].headlineLine2}</span>
             </h1>
-            <p className="max-w-lg text-base leading-relaxed text-fana-cream/85 sm:text-lg">
-              {STORY_BEATS[0].supporting}
-            </p>
-            <HeroCtaGroup alignClass="justify-start" />
           </div>
 
-          <div className="grid gap-4 pt-4 sm:grid-cols-2 lg:grid-cols-3">
-            {STORY_BEATS.slice(1).map((beat) => (
+          <div className="grid gap-4 pt-4 sm:grid-cols-2 lg:grid-cols-4">
+            {STORY_BEATS.slice(1, -1).map((beat) => (
               <div
                 key={beat.id}
                 className="rounded-2xl border border-fana-cream/12 bg-fana-dark/65 p-5 backdrop-blur-md"
               >
-                <h2 className="font-display text-lg text-fana-cream">{beat.headline}</h2>
+                <div className="mb-2 flex items-center gap-2 font-mono text-[10px] uppercase tracking-[0.24em] text-fana-gold">
+                  <span>{beat.sceneNumber}</span>
+                  <span className="text-fana-cream/30">/</span>
+                  <span className="text-fana-cream/50">06</span>
+                  <span>•</span>
+                  <span>{beat.sceneLabel}</span>
+                </div>
+                <h2 className="font-display font-serif text-lg text-fana-cream">
+                  {beat.headlineLine1} {beat.headlineLine2}
+                </h2>
                 <p className="mt-1.5 text-sm leading-relaxed text-fana-cream/70">
                   {beat.supporting}
                 </p>
               </div>
             ))}
+          </div>
+
+          <div className="mx-auto max-w-4xl space-y-4 pt-4 text-center">
+            <h2 className="font-display font-serif text-3xl leading-[1.08] text-transparent bg-clip-text bg-gradient-to-r from-amber-100 via-fana-gold to-amber-300 drop-shadow-[0_4px_24px_rgba(245,158,11,0.35)] sm:text-4xl md:text-5xl">
+              <span className="block">{STORY_BEATS[STORY_BEATS.length - 1].headlineLine1}</span>
+              <span className="block font-serif italic">{STORY_BEATS[STORY_BEATS.length - 1].headlineLine2}</span>
+            </h2>
           </div>
         </div>
 
@@ -369,30 +443,71 @@ export default function ScrollStoryExperience() {
                 )}
                 style={{ opacity: idx === 0 ? 1 : 0 }}
               >
-                <div className={cn("space-y-3 sm:space-y-4", beat.contentClass)}>
-                  <HeadingTag
-                    className={cn(
-                      "font-display tracking-tight text-fana-cream drop-shadow-[0_4px_28px_rgba(10,8,6,0.9)]",
-                      "text-[2rem] leading-[1.09] sm:text-[2.5rem] md:text-[3.25rem] lg:text-[3.85rem] xl:text-[4.25rem] md:leading-[1.05]"
-                    )}
-                  >
-                    {beat.headline}
-                  </HeadingTag>
-
-                  <p className="text-sm leading-relaxed text-fana-cream/85 drop-shadow-[0_2px_16px_rgba(10,8,6,0.95)] sm:text-base md:text-lg lg:text-[1.1875rem]">
-                    {beat.supporting}
-                  </p>
-
-                  {beat.showCtas && (
+                {idx === 0 ? (
+                  <div className="mx-auto flex max-w-4xl flex-col items-center justify-center text-center">
+                    {/* Centered Golden Hero Headline */}
+                    <HeadingTag className="kinetic-headline font-display font-serif tracking-tight text-transparent bg-clip-text bg-gradient-to-r from-amber-100 via-fana-gold to-amber-300 drop-shadow-[0_4px_34px_rgba(245,158,11,0.4)] text-[2.75rem] leading-[1.08] sm:text-[3.85rem] md:text-[5rem] lg:text-[5.75rem] xl:text-[6.25rem] md:leading-[1.03]">
+                      <span className="block">{beat.headlineLine1}</span>
+                      <span className="block">{beat.headlineLine2}</span>
+                    </HeadingTag>
+                  </div>
+                ) : idx === STORY_BEATS.length - 1 ? (
+                  <div className="mx-auto flex max-w-4xl flex-col items-center justify-center text-center">
+                    {/* Centered Golden Final Invitation Headline */}
+                    <HeadingTag className="kinetic-headline font-display font-serif tracking-tight text-transparent bg-clip-text bg-gradient-to-r from-amber-100 via-fana-gold to-amber-300 drop-shadow-[0_4px_34px_rgba(245,158,11,0.4)] text-[2.75rem] leading-[1.08] sm:text-[3.85rem] md:text-[5rem] lg:text-[5.75rem] xl:text-[6.25rem] md:leading-[1.03]">
+                      <span className="block">{beat.headlineLine1}</span>
+                      <span className="block font-serif italic">{beat.headlineLine2}</span>
+                    </HeadingTag>
+                  </div>
+                ) : (
+                  <div className={cn("space-y-3.5 sm:space-y-4", beat.contentClass)}>
+                    {/* Editorial Scene Label & Golden Hairline */}
                     <div
                       className={cn(
-                        isBeatActive ? "pointer-events-auto" : "pointer-events-none"
+                        "editorial-badge flex items-center gap-2.5 font-mono text-[10px] sm:text-[11px] uppercase tracking-[0.28em] text-fana-gold font-medium",
+                        beat.contentClass.includes("text-right")
+                          ? "justify-end"
+                          : beat.contentClass.includes("text-center")
+                          ? "justify-center"
+                          : "justify-start"
                       )}
                     >
-                      <HeroCtaGroup alignClass={beat.ctaAlignClass} />
+                      <span className="font-bold text-fana-gold">{beat.sceneNumber}</span>
+                      <span className="text-fana-cream/30">/</span>
+                      <span className="text-fana-cream/50">06</span>
+                      <span className="inline-block h-1 w-1 rounded-full bg-fana-gold/70" />
+                      <span className="tracking-[0.22em] text-fana-cream/75">{beat.sceneLabel}</span>
+                      <span className="golden-line inline-block h-[1px] w-8 sm:w-12 origin-left bg-gradient-to-r from-fana-gold/80 to-transparent" />
                     </div>
-                  )}
-                </div>
+
+                    {/* Storytelling Headline */}
+                    <HeadingTag
+                      className={cn(
+                        "kinetic-headline font-display font-serif tracking-tight text-fana-cream drop-shadow-[0_4px_30px_rgba(10,8,6,0.95)]",
+                        "text-[2.1rem] leading-[1.08] sm:text-[2.7rem] md:text-[3.35rem] lg:text-[4rem] xl:text-[4.35rem] md:leading-[1.05]"
+                      )}
+                    >
+                      <span className="block">{beat.headlineLine1}</span>
+                      <span className="block">
+                        {beat.headlineAccent ? (
+                          <>
+                            {beat.headlineLine2.replace(beat.headlineAccent, "")}
+                            <span className="font-serif italic font-normal text-transparent bg-clip-text bg-gradient-to-r from-amber-200 via-fana-gold to-amber-300 drop-shadow-[0_2px_16px_rgba(245,158,11,0.32)]">
+                              {beat.headlineAccent}
+                            </span>
+                          </>
+                        ) : (
+                          beat.headlineLine2
+                        )}
+                      </span>
+                    </HeadingTag>
+
+                    {/* Supporting Description */}
+                    <p className="kinetic-supporting text-sm leading-relaxed text-fana-cream/80 drop-shadow-[0_2px_16px_rgba(10,8,6,0.95)] sm:text-base md:text-lg lg:text-[1.15rem]">
+                      {beat.supporting}
+                    </p>
+                  </div>
+                )}
               </div>
             );
           })}

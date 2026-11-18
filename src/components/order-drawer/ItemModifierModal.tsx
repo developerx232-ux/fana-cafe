@@ -27,6 +27,15 @@ const MILK_OPTIONS: NonNullable<SelectedModifiers["milk"]>[] = [
 ];
 const SPICE_OPTIONS: NonNullable<SelectedModifiers["spice"]>[] = ["Mild", "Medium", "Spicy"];
 
+const CUSTOMIZE_CATEGORY_LABELS: Record<string, string> = {
+  coffee: "Customize Coffee",
+  smoothies: "Customize Smoothie",
+  heritage: "Customize Feast",
+  platters: "Customize Platter",
+  wraps: "Customize Wrap & Bite",
+  patisserie: "Customize Patisserie",
+};
+
 export default function ItemModifierModal({
   item,
   onCancel,
@@ -64,7 +73,7 @@ export default function ItemModifierModal({
         </button>
         <div>
           <p className="font-mono text-[10px] uppercase tracking-[0.2em] text-fana-gold">
-            Customize Plate
+            {CUSTOMIZE_CATEGORY_LABELS[item.category] || "Customize Item"}
           </p>
           <h3 className="font-display text-lg text-fana-cream">{item.name}</h3>
         </div>
