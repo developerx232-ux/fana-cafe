@@ -1,0 +1,83 @@
+{
+  "generatedAt": "2026-11-18T11:06:32.847Z",
+  "frames": {
+    "desktopCount": 368,
+    "mobileCount": 368,
+    "fps": 30,
+    "desktopTotalMB": 11.55,
+    "mobileTotalMB": 3.64,
+    "desktopAvgKB": 32.1,
+    "mobileAvgKB": 10.1
+  },
+  "videos": {
+    "juice_bar": {
+      "dur": "00:00:05.21",
+      "res": "1280x720",
+      "fps": "24",
+      "sizeMB": 0.8
+    },
+    "workspace_hub": {
+      "dur": "00:00:07.58",
+      "res": "960x540",
+      "fps": "24",
+      "sizeMB": 0.97
+    },
+    "tradition_mural": {
+      "dur": "00:00:10.75",
+      "res": "854x480",
+      "fps": "24",
+      "sizeMB": 1.11
+    },
+    "open_kitchen_workspace": {
+      "dur": "00:00:09.92",
+      "res": "1280x720",
+      "fps": "24",
+      "sizeMB": 2.06,
+      "role": "supplementary"
+    },
+    "open_kitchen": {
+      "dur": "00:00:09.92",
+      "res": "1280x720",
+      "fps": "24",
+      "sizeMB": 2.06,
+      "role": "experience_card_03"
+    },
+    "dining_experience": {
+      "dur": "00:00:06.63",
+      "res": "1280x720",
+      "fps": "24",
+      "sizeMB": 2.01,
+      "role": "experience_card_04"
+    }
+  },
+  "updatedAt": "2026-11-18T14:04:49.892Z",
+  "menuImages": {
+    "count": 26,
+    "totalOriginalMB": 51.71,
+    "totalOptimizedMB": 4.21,
+    "savingsPercent": 91.9,
+    "manifestPath": "/menu-manifest.json"
+  },
+  "experiencePosters": [
+    {
+      "id": "juice_bar",
+      "path": "/videos/posters/juice_bar.webp",
+      "sizeKB": 84.5
+    },
+    {
+      "id": "workspace_hub",
+      "path": "/videos/posters/workspace_hub.webp",
+      "sizeKB": 104.2
+    },
+    {
+      "id": "open_kitchen",
+      "path": "/videos/posters/open_kitchen.webp",
+      "sizeKB": 101.7
+    },
+    {
+      "id": "dining_experience",
+      "path": "/videos/posters/dining_experience.webp",
+      "sizeKB": 127.5
+    }
+  ]
+}
