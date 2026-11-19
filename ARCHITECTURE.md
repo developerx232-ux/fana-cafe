@@ -23,7 +23,7 @@ fana-cafe/
 │   │   │
 │   │   ├── sections/                      # On-site cafe experiences & interactive menu sections
 │   │   │   ├── FanaExperiencesSection.tsx # #spaces: 4-card 1:1 horizontal video showcase (GSAP pinned desktop / touch snap mobile)
-│   │   │   ├── MenuShowcaseSection.tsx    # #menu: 3D floating transparent-cutout horizontal menu carousel (27 items, glow, search, filters)
+│   │   │   ├── MenuShowcaseSection.tsx    # #menu: Refined 3D floating cutout showcase (staggered scroll reveal, dampened cursor parallax, physical depth transitions, warm spotlight glow, synchronized text)
 │   │   │   └── TableOrderCalloutSection.tsx # #order: Quick-select Tables 01–20 CTA jumping directly into QR Order Drawer
 │   │   │
 │   │   ├── order-drawer/                  # Instant QR Table Ordering Drawer (Frontend Prototype Flow)
